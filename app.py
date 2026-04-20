@@ -101,20 +101,40 @@ def search_web(query: str) -> str:
 
 
 def extract_json(text: str) -> dict:
+    if not text:
+        return _error_json("Respuesta vacía.")
+
+    # 1. Parse directo
     try:
         return json.loads(text)
     except Exception:
         pass
-    match = re.search(r"\{[\s\S]*\}", text)
-    if match:
+
+    # 2. JSON dentro de bloque markdown ```json ... ```
+    code_match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text)
+    if code_match:
         try:
-            return json.loads(match.group())
+            return json.loads(code_match.group(1))
         except Exception:
             pass
+
+    # 3. Primer { hasta último }
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1:
+        try:
+            return json.loads(text[start:end + 1])
+        except Exception:
+            pass
+
+    return _error_json("No se pudo leer la respuesta. Inténtalo de nuevo.")
+
+
+def _error_json(msg: str) -> dict:
     return {
         "verificacion": {
             "veredicto": "ERROR",
-            "explicacion": "No se pudo procesar la respuesta. Inténtalo de nuevo.",
+            "explicacion": msg,
             "dato_correcto": "",
             "fuentes": []
         },
@@ -187,7 +207,7 @@ FORMATO DE SALIDA — devuelve ÚNICAMENTE este JSON, sin texto extra:
     for _ in range(max_iterations):
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=4096,
+            max_tokens=8096,
             system=system_prompt,
             tools=tools,
             messages=messages
