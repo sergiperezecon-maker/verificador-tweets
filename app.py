@@ -202,7 +202,7 @@ FORMATO DE SALIDA — devuelve ÚNICAMENTE este JSON, sin texto extra:
 }"""
 
     messages = [{"role": "user", "content": f'Verifica este tweet y genera 3 respuestas:\n\n"{tweet}"'}]
-    max_iterations = 6
+    max_iterations = 8
 
     for _ in range(max_iterations):
         response = client.messages.create(
@@ -227,14 +227,20 @@ FORMATO DE SALIDA — devuelve ÚNICAMENTE este JSON, sin texto extra:
             messages.append({"role": "user", "content": tool_results})
 
         elif response.stop_reason == "end_turn":
+            # Recoge todo el texto disponible en la respuesta
+            full_text = ""
             for block in response.content:
-                if hasattr(block, "text"):
-                    return extract_json(block.text)
-            break
+                if block.type == "text":
+                    full_text += block.text
+            if full_text:
+                return extract_json(full_text)
+            # Si no hay texto pero hay content, fuerza un último turno
+            messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "user", "content": "Devuelve ahora el JSON final con la verificación y las 3 respuestas."})
         else:
             break
 
-    return extract_json("")
+    return _error_json("No se pudo obtener respuesta. Inténtalo de nuevo.")
 
 
 # ─── UI ────────────────────────────────────────────────────────────────────────
