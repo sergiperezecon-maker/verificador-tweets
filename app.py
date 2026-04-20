@@ -226,7 +226,17 @@ st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 # API Key
 api_key_saved = st.session_state.get("api_key", "")
 with st.expander("🔑 API Key de Anthropic", expanded=not api_key_saved):
-    st.markdown("<small style='color:#555'>Tu key nunca sale de tu ordenador. Se guarda solo en esta sesión.</small>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style='background:#111; border:1px solid #222; border-radius:6px; padding:1rem; margin-bottom:0.8rem;'>
+        <p style='color:#aaa; font-size:0.9rem; margin:0 0 0.5rem 0;'>Esta herramienta usa la API de Anthropic (Claude). Necesitas tu propia key gratuita.</p>
+        <p style='color:#555; font-size:0.85rem; margin:0;'>
+            1. Ve a <strong style='color:#888'>console.anthropic.com</strong> → crea una cuenta gratis<br>
+            2. Entra en <strong style='color:#888'>API Keys</strong> → clic en <strong style='color:#888'>Create Key</strong><br>
+            3. Copia la key (empieza por <code style='color:#666'>sk-ant-</code>) y pégala abajo<br>
+            4. Tu key nunca se guarda — solo existe en esta sesión del navegador
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     key_input = st.text_input("", type="password", value=api_key_saved, placeholder="sk-ant-api03-...")
     if key_input:
         st.session_state["api_key"] = key_input
