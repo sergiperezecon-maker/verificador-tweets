@@ -162,11 +162,12 @@ def verify_tweet(tweet: str, api_key: str) -> dict:
 
     from datetime import date
     today = date.today().strftime("%d de %B de %Y")
+    date_line = f"FECHA ACTUAL: {today}. Estamos en 2026. Usa SIEMPRE esta fecha como referencia."
 
-    system_prompt = f"""Eres un verificador de hechos experto en economía, finanzas y política española y global.
+    system_prompt = """Eres un verificador de hechos experto en economía, finanzas y política española y global.
 También eres estratega de contenido para el nicho "Aesthetic Financiero / Despertar Económico" en Instagram y TikTok.
 
-FECHA ACTUAL: {today}. Estamos en 2026. Usa SIEMPRE esta fecha como referencia.
+""" + date_line + """
 
 CONTEXTO ACTUAL (abril 2026) que debes tener en cuenta al verificar:
 - Guerra activa entre EE.UU./Israel e Irán desde febrero 2026. Estrecho de Ormuz afectado.
