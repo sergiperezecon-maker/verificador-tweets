@@ -211,28 +211,25 @@ def verify_claude(tweet: str, api_key: str, angulo: str) -> dict:
 
 
 @st.cache_data(ttl=3600)
-def get_groq_model(api_key: str) -> str:
-    preferred = ["llama-3.3-70b", "llama-3.1-70b", "llama3-70b", "mixtral-8x7b", "gemma2-9b", "llama"]
+def get_gemini_model(api_key: str) -> str:
+    preferred = ["gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"]
     try:
-        r = requests.get(
-            "https://api.groq.com/openai/v1/models",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=10
-        )
+        r = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}", timeout=10)
         if r.ok:
-            models = [m["id"] for m in r.json().get("data", [])]
-            for keyword in preferred:
-                for m in models:
-                    if keyword in m:
+            available = [m["name"].replace("models/", "") for m in r.json().get("models", [])
+                         if "generateContent" in m.get("supportedGenerationMethods", [])]
+            for preferred_model in preferred:
+                for m in available:
+                    if preferred_model in m:
                         return m
-            if models:
-                return models[0]
+            if available:
+                return available[0]
     except Exception:
         pass
-    return "llama-3.3-70b-versatile"
+    return "gemini-2.0-flash"
 
 
-def verify_groq(tweet: str, api_key: str, angulo: str) -> dict:
+def verify_gemini(tweet: str, api_key: str, angulo: str) -> dict:
     context1 = search_web(tweet[:200])
     context2 = search_web(tweet[:100] + " datos España 2026 estadísticas")
     context3 = search_web(tweet[:100] + " fuentes INE Banco de España eurostat")
@@ -288,29 +285,25 @@ Tweet a verificar: "{tweet}"
 
 Devuelve ÚNICAMENTE el JSON, sin texto previo ni explicaciones."""
 
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    payload = {
-        "model": get_groq_model(api_key),
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt}
-        ],
-        "max_tokens": 4096,
-        "temperature": 0.2
-    }
+    model = get_gemini_model(api_key)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    payload = {"contents": [{"parts": [{"text": system + "\n\n" + prompt}]}]}
 
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=60)
-        if resp.ok:
-            text = resp.json()["choices"][0]["message"]["content"]
-            # deepseek-r1 incluye <think>...</think> antes del JSON, lo eliminamos
-            text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.DOTALL).strip()
-            return extract_json(text)
-        err = resp.json().get("error", {}).get("message", resp.status_code)
-        return _error_json(f"Error Groq: {err}")
-    except Exception as e:
-        return _error_json(f"Error de conexión con Groq: {e}")
+    for attempt in range(3):
+        try:
+            resp = requests.post(url, json=payload, timeout=60)
+            if resp.ok:
+                text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+                return extract_json(text)
+            if resp.status_code == 503 and attempt < 2:
+                time.sleep(3)
+                continue
+            err = resp.json().get("error", {}).get("message", resp.status_code)
+            return _error_json(f"Error Gemini: {err}")
+        except Exception as e:
+            return _error_json(f"Error de conexión con Gemini: {e}")
+
+    return _error_json("No se pudo obtener respuesta de Gemini.")
 
 
 def verify_gemini(tweet: str, api_key: str, angulo: str) -> dict:
@@ -380,11 +373,11 @@ st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
 # Model selector + API key
 st.markdown("### Motor de IA")
-modelo = st.radio("", ["Groq — Llama 3.1 (gratis)", "Claude (de pago, más preciso)"], horizontal=True, label_visibility="collapsed")
+modelo = st.radio("", ["Gemini Pro", "Claude (más preciso)"], horizontal=True, label_visibility="collapsed")
 
 placeholders = {
-    "Groq — Llama 3.1 (gratis)": ("console.groq.com → Create API Key (gratis)", "gsk_..."),
-    "Claude (de pago, más preciso)": ("console.anthropic.com → API Keys", "sk-ant-api03-..."),
+    "Gemini Pro": ("aistudio.google.com → Get API Key", "AIzaSy..."),
+    "Claude (más preciso)": ("console.anthropic.com → API Keys", "sk-ant-api03-..."),
 }
 hint, placeholder = placeholders[modelo]
 
@@ -419,7 +412,7 @@ if run:
             if "Claude" in modelo:
                 result = verify_claude(tweet_input.strip(), st.session_state["api_key"], angulo_input.strip())
             else:
-                result = verify_groq(tweet_input.strip(), st.session_state["api_key"], angulo_input.strip())
+                result = verify_gemini(tweet_input.strip(), st.session_state["api_key"], angulo_input.strip())
 
         verif = result.get("verificacion", {})
         veredicto = verif.get("veredicto", "ERROR")
