@@ -217,7 +217,35 @@ def verify_groq(tweet: str, api_key: str, angulo: str) -> dict:
 
     angulo_line = f"\n\nÁNGULO DEL USUARIO: {angulo.strip()}\nUsa los datos como munición para este ángulo." if angulo.strip() else ""
 
-    prompt = f"""DATOS DE INTERNET (tres búsquedas):
+    system = build_system_prompt(angulo) + """
+
+EJEMPLOS DEL ESTILO QUE DEBES IMITAR EN LAS RESPUESTAS:
+
+Ejemplo 1 (Amplificación):
+"La vivienda en España subió un **14,7% este año**.
+No es el mercado. Es el resultado de 20 años de políticas que favorecieron al inversor sobre el inquilino.
+Tu alquiler no subió por casualidad.
+Subió por diseño."
+
+Ejemplo 2 (Corrección con autoridad):
+"El dato es incompleto. El SMI subió un 47% en 7 años.
+Los salarios reales en ese mismo período: +6%.
+Subir el suelo sin tocar la estructura no es solución.
+Es anestesia."
+
+Ejemplo 3 (Máximo alcance):
+"Productividad en España desde los 80: +53%.
+Salarios reales en ese mismo período: +22%.
+La diferencia no desapareció.
+Fue a otro sitio."
+
+REGLAS CRÍTICAS:
+- Cada respuesta máximo 4 líneas. Cada línea debe poder sostenerse sola.
+- El dato más fuerte siempre en **negrita**.
+- Termina siempre con una frase que haga pensar, nunca con una solución fácil.
+- El antagonista es el sistema, nunca una persona o partido."""
+
+    prompt = f"""DATOS DE INTERNET (tres búsquedas independientes):
 
 BÚSQUEDA 1:
 {context1}
@@ -228,29 +256,34 @@ BÚSQUEDA 2:
 BÚSQUEDA 3 (fuentes oficiales):
 {context3}
 
-NORMAS: Solo usa datos que aparezcan arriba. No inventes cifras. Si no está confirmado, di "dato no verificado".
+NORMAS DE PRECISIÓN:
+- Solo afirma datos que aparezcan en los resultados de arriba.
+- Nunca inventes cifras, fechas ni porcentajes.
+- Las URLs en fuentes deben ser reales de los resultados.
 {angulo_line}
 
 Tweet a verificar: "{tweet}"
 
-Devuelve ÚNICAMENTE el JSON pedido en el system prompt, sin texto extra."""
+Devuelve ÚNICAMENTE el JSON, sin texto previo ni explicaciones."""
 
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": "deepseek-r1-distill-llama-70b",
         "messages": [
-            {"role": "system", "content": build_system_prompt(angulo)},
+            {"role": "system", "content": system},
             {"role": "user", "content": prompt}
         ],
-        "max_tokens": 2048,
+        "max_tokens": 4096,
         "temperature": 0.2
     }
 
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=30)
+        resp = requests.post(url, headers=headers, json=payload, timeout=60)
         if resp.ok:
             text = resp.json()["choices"][0]["message"]["content"]
+            # deepseek-r1 incluye <think>...</think> antes del JSON, lo eliminamos
+            text = re.sub(r"<think>[\s\S]*?</think>", "", text).strip()
             return extract_json(text)
         err = resp.json().get("error", {}).get("message", resp.status_code)
         return _error_json(f"Error Groq: {err}")
