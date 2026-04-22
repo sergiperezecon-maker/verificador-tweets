@@ -1,8 +1,11 @@
 import streamlit as st
-import anthropic
+import requests
 import json
 import re
+import time
 from duckduckgo_search import DDGS
+from datetime import date
+import os
 
 st.set_page_config(
     page_title="Verificador de Tweets",
@@ -75,8 +78,54 @@ st.markdown("""
     [data-testid="stCodeBlock"] { background-color: #111 !important; }
     [data-testid="stCodeBlock"] pre { background-color: #111 !important; border: 1px solid #222 !important; }
     .source-link { color: #555; font-size: 0.8rem; word-break: break-all; }
+    .counter-free    { color: #888; font-size: 0.8rem; }
+    .counter-warning { color: #ffaa00; font-size: 0.8rem; }
+    .counter-empty   { color: #ff5252; font-size: 0.8rem; }
+    .premium-badge {
+        background: linear-gradient(90deg, #1a1400, #2a2000);
+        border: 1px solid #5a4500;
+        color: #ffcc44;
+        padding: 3px 10px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 1px;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+FREE_LIMIT = 3
+
+
+def init_session():
+    if "query_count" not in st.session_state:
+        st.session_state.query_count = 0
+        st.session_state.query_date = date.today()
+        st.session_state.is_premium = False
+    if st.session_state.query_date != date.today():
+        st.session_state.query_count = 0
+        st.session_state.query_date = date.today()
+
+
+def get_api_key() -> str:
+    try:
+        return st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        return os.getenv("GEMINI_API_KEY", "")
+
+
+def get_premium_codes() -> list:
+    try:
+        raw = st.secrets.get("PREMIUM_CODES", "")
+        return [c.strip().upper() for c in raw.split(",") if c.strip()]
+    except Exception:
+        return []
+
+
+def queries_remaining() -> int:
+    if st.session_state.is_premium:
+        return 9999
+    return max(0, FREE_LIMIT - st.session_state.query_count)
 
 
 def search_web(query: str) -> str:
@@ -103,22 +152,16 @@ def search_web(query: str) -> str:
 def extract_json(text: str) -> dict:
     if not text:
         return _error_json("Respuesta vacía.")
-
-    # 1. Parse directo
     try:
         return json.loads(text)
     except Exception:
         pass
-
-    # 2. JSON dentro de bloque markdown ```json ... ```
     code_match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text)
     if code_match:
         try:
             return json.loads(code_match.group(1))
         except Exception:
             pass
-
-    # 3. Primer { hasta último }
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1:
@@ -126,7 +169,6 @@ def extract_json(text: str) -> dict:
             return json.loads(text[start:end + 1])
         except Exception:
             pass
-
     return _error_json("No se pudo leer la respuesta. Inténtalo de nuevo.")
 
 
@@ -142,32 +184,43 @@ def _error_json(msg: str) -> dict:
     }
 
 
+@st.cache_data(ttl=3600)
+def get_working_model(api_key: str) -> str:
+    list_url = f"https://generativelanguage.googleapis.com/v1/models?key={api_key}"
+    try:
+        r = requests.get(list_url, timeout=10)
+        if r.ok:
+            models = r.json().get("models", [])
+            for m in models:
+                supported = m.get("supportedGenerationMethods", [])
+                name = m.get("name", "")
+                if "generateContent" in supported and "flash" in name.lower():
+                    return name.replace("models/", "")
+            for m in models:
+                supported = m.get("supportedGenerationMethods", [])
+                name = m.get("name", "")
+                if "generateContent" in supported:
+                    return name.replace("models/", "")
+    except Exception:
+        pass
+    return None
+
+
 def verify_tweet(tweet: str, api_key: str, angulo: str = "") -> dict:
-    client = anthropic.Anthropic(api_key=api_key)
+    model = get_working_model(api_key)
+    if not model:
+        return _error_json("No se pudo conectar con la IA. Inténtalo de nuevo.")
 
-    tools = [{
-        "name": "buscar_informacion",
-        "description": "Busca en internet para verificar datos, estadísticas y afirmaciones concretas.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "consulta": {
-                    "type": "string",
-                    "description": "Consulta de búsqueda para verificar un dato específico del tweet."
-                }
-            },
-            "required": ["consulta"]
-        }
-    }]
-
-    from datetime import date
     today = date.today().strftime("%d de %B de %Y")
-    date_line = f"FECHA ACTUAL: {today}. Estamos en 2026. Usa SIEMPRE esta fecha como referencia."
 
-    system_prompt = """Eres un verificador de hechos experto en economía, finanzas y política española y global.
+    angulo_line = ""
+    if angulo.strip():
+        angulo_line = f"\n\nÁNGULO DEL USUARIO: {angulo.strip()}\nTen muy en cuenta este ángulo al generar las 3 respuestas. Las respuestas deben argumentar desde esta posición, usando los datos verificados como munición."
+
+    system_prompt = f"""Eres un verificador de hechos experto en economía, finanzas y política española y global.
 También eres estratega de contenido para el nicho "Aesthetic Financiero / Despertar Económico" en Instagram y TikTok.
 
-""" + date_line + """
+FECHA ACTUAL: {today}. Estamos en 2026. Usa SIEMPRE esta fecha como referencia.
 
 CONTEXTO ACTUAL (abril 2026) que debes tener en cuenta al verificar:
 - Guerra activa entre EE.UU./Israel e Irán desde febrero 2026. Estrecho de Ormuz afectado.
@@ -177,100 +230,127 @@ CONTEXTO ACTUAL (abril 2026) que debes tener en cuenta al verificar:
 - Renta mediana de jóvenes (<35 años) en España cayó un 17%.
 - Aranceles Trump: 34% a China, 20% a la UE. Europa respondió con represalias.
 - Deuda pública mundial: 117% del PIB global según el FMI.
-- Guerra comercial EE.UU.-China activa. Europa busca acuerdos alternativos.
+- SMI España 2026: 1.221€/mes.
 
-PROCESO:
-1. Identifica las afirmaciones verificables del tweet.
-2. Usa buscar_informacion para contrastar con datos actuales de 2026 (busca en español e inglés).
-3. Si el tweet usa datos de 2024 o anteriores, indícalo en el veredicto.
-4. Devuelve el resultado en el JSON exacto indicado abajo.
-
-VOZ Y FILOSOFÍA DE LA CUENTA:
-Esta cuenta se llama "Aesthetic Financiero / Despertar Económico". Su mensaje central es:
-el mundo está cambiando a una velocidad que la mayoría no percibe, y hay que prepararse.
+VOZ Y FILOSOFÍA DE LA CUENTA (@contraelrelato):
+El mensaje central es: el mundo está cambiando a una velocidad que la mayoría no percibe, y hay que prepararse.
 El tono es el de alguien que ha visto los datos reales y los comparte con urgencia y autoridad.
-NO es una cuenta política. Es una cuenta que usa hechos económicos para despertar conciencia.
-
-EJEMPLOS DEL ESTILO:
-- "No es mala suerte. Es diseño."
-- "El sistema no está roto. Está funcionando exactamente como fue diseñado."
-- "La diferencia no es el dinero que tienen. Es la información que manejan."
-- "Esto no es una noticia. Es el precio de tu factura del mes que viene."
+NO es una cuenta política. El antagonista es el sistema, nunca una persona o partido concreto.
 
 REGLAS DE VOZ:
 - Siempre conecta el dato con el impacto en la vida real del lector
 - Termina con una frase que haga pensar, no con una solución fácil
-- El antagonista es el sistema, nunca una persona o partido concreto
 - Transforma datos técnicos en realidades cotidianas
 - Máximo 4 líneas por respuesta. Cada línea debe poder sostenerse sola.
 - Usa **negritas** para el dato más fuerte.
 - Sin emojis salvo al principio si refuerza el impacto.
 
+PROCESO:
+1. Identifica las afirmaciones verificables del tweet.
+2. Busca datos actuales para contrastarlas.
+3. Si el tweet usa datos de 2024 o anteriores, indícalo en el veredicto.
+4. Devuelve el resultado en el JSON exacto indicado abajo.
+
 FORMATO DE SALIDA — devuelve ÚNICAMENTE este JSON, sin texto extra:
-{
-  "verificacion": {
+{{
+  "verificacion": {{
     "veredicto": "VERDADERO | FALSO | PARCIALMENTE VERDADERO",
     "explicacion": "Explicación clara y concisa del veredicto.",
     "dato_correcto": "El dato exacto o matiz importante si lo hay.",
     "fuentes": ["url1", "url2"]
-  },
+  }},
   "respuestas": [
-    {
+    {{
       "tipo": "Amplificación",
       "descripcion": "Confirma y añade el dato más impactante.",
       "texto": "..."
-    },
-    {
+    }},
+    {{
       "tipo": "Corrección con autoridad",
       "descripcion": "Corrige o matiza posicionándote como fuente experta.",
       "texto": "..."
-    },
-    {
+    }},
+    {{
       "tipo": "Máximo alcance",
       "descripcion": "Diseñada para shares y guardados.",
       "texto": "..."
-    }
+    }}
   ]
-}"""
+}}"""
 
-    angulo_line = f"\n\nÁNGULO DEL USUARIO: {angulo.strip()}\nTen muy en cuenta este ángulo al generar las 3 respuestas. Las respuestas deben argumentar desde esta posición, usando los datos verificados como munición." if angulo.strip() else ""
+    tools = [{
+        "function_declarations": [{
+            "name": "buscar_informacion",
+            "description": "Busca en internet para verificar datos, estadísticas y afirmaciones concretas.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "consulta": {
+                        "type": "string",
+                        "description": "Consulta de búsqueda para verificar un dato específico del tweet."
+                    }
+                },
+                "required": ["consulta"]
+            }
+        }]
+    }]
 
-    messages = [{"role": "user", "content": f'Verifica este tweet y genera 3 respuestas:{angulo_line}\n\nTweet a verificar:\n\n"{tweet}"'}]
+    url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={api_key}"
+
+    contents = [{
+        "role": "user",
+        "parts": [{"text": f"Verifica este tweet y genera 3 respuestas:{angulo_line}\n\nTweet a verificar:\n\n\"{tweet}\""}]
+    }]
+
     max_iterations = 8
-
     for _ in range(max_iterations):
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=8096,
-            system=system_prompt,
-            tools=tools,
-            messages=messages
-        )
+        payload = {
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": contents,
+            "tools": tools
+        }
 
-        if response.stop_reason == "tool_use":
-            messages.append({"role": "assistant", "content": response.content})
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    result_text = search_web(block.input["consulta"])
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result_text
-                    })
-            messages.append({"role": "user", "content": tool_results})
+        for attempt in range(3):
+            resp = requests.post(url, json=payload, timeout=30)
+            if resp.ok:
+                break
+            if resp.status_code == 503 and attempt < 2:
+                time.sleep(3)
+                continue
 
-        elif response.stop_reason == "end_turn":
-            # Recoge todo el texto disponible en la respuesta
-            full_text = ""
-            for block in response.content:
-                if block.type == "text":
-                    full_text += block.text
-            if full_text:
+        if not resp.ok:
+            return _error_json("Error de conexión. Inténtalo de nuevo.")
+
+        data = resp.json()
+        candidate = data.get("candidates", [{}])[0]
+        content = candidate.get("content", {})
+        parts = content.get("parts", [])
+        finish = candidate.get("finishReason", "")
+
+        # Check for function calls
+        function_calls = [p for p in parts if "functionCall" in p]
+        text_parts = [p for p in parts if "text" in p]
+
+        if function_calls:
+            contents.append({"role": "model", "parts": parts})
+            tool_responses = []
+            for fc in function_calls:
+                name = fc["functionCall"]["name"]
+                args = fc["functionCall"].get("args", {})
+                result_text = search_web(args.get("consulta", ""))
+                tool_responses.append({
+                    "functionResponse": {
+                        "name": name,
+                        "response": {"content": result_text}
+                    }
+                })
+            contents.append({"role": "user", "parts": tool_responses})
+
+        elif text_parts:
+            full_text = "".join(p["text"] for p in text_parts)
+            if full_text.strip():
                 return extract_json(full_text)
-            # Si no hay texto pero hay content, fuerza un último turno
-            messages.append({"role": "assistant", "content": response.content})
-            messages.append({"role": "user", "content": "Devuelve ahora el JSON final con la verificación y las 3 respuestas."})
+            break
         else:
             break
 
@@ -279,30 +359,39 @@ FORMATO DE SALIDA — devuelve ÚNICAMENTE este JSON, sin texto extra:
 
 # ─── UI ────────────────────────────────────────────────────────────────────────
 
+init_session()
+api_key = get_api_key()
+
 st.markdown("# ⚡ Verificador de Tweets")
 st.markdown("<p style='color:#555; margin-top:-0.5rem;'>Aesthetic Financiero · Verifica datos · Genera respuestas</p>", unsafe_allow_html=True)
 st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
-# API Key
-api_key_saved = st.session_state.get("api_key", "")
-with st.expander("🔑 API Key de Anthropic", expanded=not api_key_saved):
-    st.markdown("""
-    <div style='background:#111; border:1px solid #222; border-radius:6px; padding:1rem; margin-bottom:0.8rem;'>
-        <p style='color:#aaa; font-size:0.9rem; margin:0 0 0.5rem 0;'>Esta herramienta usa la API de Anthropic (Claude). Necesitas tu propia key gratuita.</p>
-        <p style='color:#555; font-size:0.85rem; margin:0;'>
-            1. Ve a <strong style='color:#888'>console.anthropic.com</strong> → crea una cuenta gratis<br>
-            2. Entra en <strong style='color:#888'>API Keys</strong> → clic en <strong style='color:#888'>Create Key</strong><br>
-            3. Copia la key (empieza por <code style='color:#666'>sk-ant-</code>) y pégala abajo<br>
-            4. Tu key nunca se guarda — solo existe en esta sesión del navegador
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-    key_input = st.text_input("", type="password", value=api_key_saved, placeholder="sk-ant-api03-...")
-    if key_input:
-        st.session_state["api_key"] = key_input
-        st.success("API Key guardada ✓")
+# Premium unlock
+with st.expander("🔓 Código Premium — verificaciones ilimitadas"):
+    code_input = st.text_input("", placeholder="Introduce tu código", label_visibility="collapsed")
+    if st.button("Activar", key="activate"):
+        valid_codes = get_premium_codes()
+        if code_input.strip().upper() in valid_codes:
+            st.session_state.is_premium = True
+            st.success("Acceso premium activado.")
+            st.rerun()
+        else:
+            st.error("Código incorrecto.")
 
 st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+
+# Counter
+remaining = queries_remaining()
+if st.session_state.is_premium:
+    st.markdown("<span class='premium-badge'>PREMIUM · ILIMITADO</span>", unsafe_allow_html=True)
+elif remaining > 1:
+    st.markdown(f"<p class='counter-free'>Verificaciones gratuitas restantes hoy: {remaining}/{FREE_LIMIT}</p>", unsafe_allow_html=True)
+elif remaining == 1:
+    st.markdown(f"<p class='counter-warning'>⚠ Te queda {remaining} verificación hoy.</p>", unsafe_allow_html=True)
+else:
+    st.markdown("<p class='counter-empty'>Has agotado tus verificaciones gratuitas de hoy. Vuelve mañana o activa un código premium.</p>", unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 # Input
 st.markdown("### Tweet a verificar")
@@ -314,7 +403,7 @@ tweet_input = st.text_area(
 )
 
 st.markdown("### ¿Qué quieres argumentar?")
-st.markdown("<p style='color:#444; font-size:0.82rem; margin-top:-0.8rem; margin-bottom:0.6rem;'>Opcional — dile a la IA tu posición. Ej: \"Quiero demostrar que subir el SMI no reduce la inflación\" o \"Quiero ir contra este argumento con datos\"</p>", unsafe_allow_html=True)
+st.markdown("<p style='color:#444; font-size:0.82rem; margin-top:-0.8rem; margin-bottom:0.6rem;'>Opcional — dile a la IA tu posición. Ej: \"Quiero demostrar que subir el SMI no reduce la inflación\"</p>", unsafe_allow_html=True)
 angulo_input = st.text_area(
     "",
     height=80,
@@ -323,24 +412,26 @@ angulo_input = st.text_area(
     key="angulo"
 )
 
-run = st.button("⚡  Verificar y generar respuestas", use_container_width=True)
+run = st.button("⚡  Verificar y generar respuestas", use_container_width=True, disabled=(remaining == 0 and not st.session_state.is_premium))
 
 st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
 # Process
 if run:
-    if not st.session_state.get("api_key"):
-        st.error("Añade tu API Key de Anthropic arriba.")
+    if not api_key:
+        st.error("API Key no configurada. Contacta con el administrador.")
     elif not tweet_input.strip():
         st.error("Pega un tweet para verificar.")
     else:
         with st.spinner("Buscando datos y analizando..."):
-            result = verify_tweet(tweet_input.strip(), st.session_state["api_key"], angulo_input.strip())
+            result = verify_tweet(tweet_input.strip(), api_key, angulo_input.strip())
+
+        if not st.session_state.is_premium:
+            st.session_state.query_count += 1
 
         verif = result.get("verificacion", {})
         veredicto = verif.get("veredicto", "ERROR")
 
-        # Verdict colors
         palette = {
             "VERDADERO":               ("#00e676", "#0a1f14", "#0d3022"),
             "FALSO":                   ("#ff5252", "#1f0a0a", "#300d0d"),
@@ -349,7 +440,6 @@ if run:
         }
         text_color, bg_color, border_color = palette.get(veredicto, palette["ERROR"])
 
-        # Verification block
         st.markdown("### Verificación")
         st.markdown(f"""
         <div class="verdict-card" style="background:{bg_color}; border:1px solid {border_color};">
@@ -367,7 +457,6 @@ if run:
 
         st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
-        # Responses
         st.markdown("### Respuestas listas para publicar")
         respuestas = result.get("respuestas", [])
 
@@ -387,7 +476,6 @@ if run:
                         <p style="color:#ddd; font-size:0.92rem; line-height:1.65; margin:0;">{resp.get('texto','').replace(chr(10),'<br>')}</p>
                     </div>
                     """, unsafe_allow_html=True)
-                    # Copy-friendly code block
                     st.code(resp.get("texto", ""), language=None)
         else:
-            st.warning("No se generaron respuestas. Revisa tu API Key o inténtalo de nuevo.")
+            st.warning("No se generaron respuestas. Inténtalo de nuevo.")
