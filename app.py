@@ -212,21 +212,19 @@ def verify_claude(tweet: str, api_key: str, angulo: str) -> dict:
 
 @st.cache_data(ttl=3600)
 def get_gemini_model(api_key: str) -> str:
+    # 1.5-flash tiene capa gratuita generosa. 2.5-pro NO tiene capa gratuita.
+    FREE_TIER_MODELS = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro"]
     try:
         r = requests.get(f"https://generativelanguage.googleapis.com/v1/models?key={api_key}", timeout=10)
         if r.ok:
-            models = r.json().get("models", [])
-            # Prefiere pro > flash > cualquier otro
-            for keyword in ["1.5-pro", "pro", "flash"]:
-                for m in models:
-                    if "generateContent" in m.get("supportedGenerationMethods", []) and keyword in m.get("name", ""):
-                        return m["name"].replace("models/", "")
-            for m in models:
-                if "generateContent" in m.get("supportedGenerationMethods", []):
-                    return m["name"].replace("models/", "")
+            available = {m["name"].replace("models/", "") for m in r.json().get("models", [])
+                        if "generateContent" in m.get("supportedGenerationMethods", [])}
+            for preferred in FREE_TIER_MODELS:
+                if preferred in available:
+                    return preferred
     except Exception:
         pass
-    return None
+    return "gemini-1.5-flash"
 
 
 def verify_gemini(tweet: str, api_key: str, angulo: str) -> dict:
