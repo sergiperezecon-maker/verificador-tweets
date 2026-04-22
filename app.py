@@ -164,7 +164,7 @@ FORMATO DE SALIDA — devuelve ÚNICAMENTE este JSON, sin texto extra:
 }}"""
 
 
-def verify_claude(tweet: str, api_key: str, angulo: str) -> dict:
+def verify_claude(tweet: str, api_key: str, angulo: str, contexto: str = "") -> dict:
     client = anthropic.Anthropic(api_key=api_key)
     tools = [{
         "name": "buscar_informacion",
@@ -176,8 +176,9 @@ def verify_claude(tweet: str, api_key: str, angulo: str) -> dict:
         }
     }]
 
-    angulo_line = f"\n\nÁngulo: {angulo.strip()}" if angulo.strip() else ""
-    messages = [{"role": "user", "content": f'Verifica este tweet y genera 3 respuestas:{angulo_line}\n\nTweet:\n\n"{tweet}"'}]
+    contexto_line = f"\n\nCONTEXTO (conversación completa / quién soy):\n{contexto.strip()}" if contexto.strip() else ""
+    angulo_line = f"\n\nÁNGULO: {angulo.strip()}\nUsa los datos verificados como munición para este ángulo." if angulo.strip() else ""
+    messages = [{"role": "user", "content": f'Verifica este tweet y genera 3 respuestas:{contexto_line}{angulo_line}\n\nTweet a verificar:\n\n"{tweet}"'}]
 
     for _ in range(8):
         response = client.messages.create(
@@ -383,10 +384,14 @@ st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
 # Tweet input
 st.markdown("### Tweet a verificar")
-tweet_input = st.text_area("", height=160, placeholder="Pega aquí el tweet...", label_visibility="collapsed")
+tweet_input = st.text_area("", height=120, placeholder="Pega aquí el tweet que quieres verificar...", label_visibility="collapsed")
+
+st.markdown("### Contexto")
+st.markdown("<p style='color:#444; font-size:0.82rem; margin-top:-0.8rem; margin-bottom:0.6rem;'>Opcional — pega la conversación completa, quién eres, a quién respondes. Cuanto más contexto, mejor respuesta.</p>", unsafe_allow_html=True)
+contexto_input = st.text_area("", height=140, placeholder="Ej: Soy @contraelrelato, cuenta de Aesthetic Financiero. Esta es la conversación completa:\n\n[pega aquí el hilo de respuestas]", label_visibility="collapsed", key="contexto")
 
 st.markdown("### ¿Qué quieres argumentar?")
-st.markdown("<p style='color:#444; font-size:0.82rem; margin-top:-0.8rem; margin-bottom:0.6rem;'>Opcional — dile a la IA tu posición. Ej: \"Quiero demostrar que subir el SMI no reduce la inflación\"</p>", unsafe_allow_html=True)
+st.markdown("<p style='color:#444; font-size:0.82rem; margin-top:-0.8rem; margin-bottom:0.6rem;'>Opcional — el ángulo concreto que quieres defender o atacar.</p>", unsafe_allow_html=True)
 angulo_input = st.text_area("", height=80, placeholder="Quiero demostrar que... / Quiero ir contra... / Mi argumento es que...", label_visibility="collapsed", key="angulo")
 
 run = st.button("⚡  Verificar y generar respuestas", use_container_width=True)
@@ -400,7 +405,7 @@ if run:
         st.error("Pega un tweet para verificar.")
     else:
         with st.spinner("Buscando datos y analizando..."):
-            result = verify_claude(tweet_input.strip(), st.session_state["api_key"], angulo_input.strip())
+            result = verify_claude(tweet_input.strip(), st.session_state["api_key"], angulo_input.strip(), contexto_input.strip())
 
         verif = result.get("verificacion", {})
         veredicto = verif.get("veredicto", "ERROR")
