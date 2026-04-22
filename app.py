@@ -372,18 +372,9 @@ st.markdown("<p style='color:#555; margin-top:-0.5rem;'>Aesthetic Financiero · 
 st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
 # Model selector + API key
-st.markdown("### Motor de IA")
-modelo = st.radio("", ["Gemini Pro", "Claude (más preciso)"], horizontal=True, label_visibility="collapsed")
-
-placeholders = {
-    "Gemini Pro": ("aistudio.google.com → Get API Key", "AIzaSy..."),
-    "Claude (más preciso)": ("console.anthropic.com → API Keys", "sk-ant-api03-..."),
-}
-hint, placeholder = placeholders[modelo]
-
-with st.expander("🔑 API Key", expanded=not st.session_state.get("api_key", "")):
-    st.markdown(f"<p style='color:#666; font-size:0.82rem;'>{hint}</p>", unsafe_allow_html=True)
-    key_input = st.text_input("", type="password", value=st.session_state.get("api_key", ""), placeholder=placeholder, label_visibility="collapsed")
+with st.expander("🔑 API Key de Anthropic", expanded=not st.session_state.get("api_key", "")):
+    st.markdown("<p style='color:#666; font-size:0.82rem;'>console.anthropic.com → API Keys</p>", unsafe_allow_html=True)
+    key_input = st.text_input("", type="password", value=st.session_state.get("api_key", ""), placeholder="sk-ant-api03-...", label_visibility="collapsed")
     if key_input:
         st.session_state["api_key"] = key_input
         st.success("API Key guardada ✓")
@@ -409,10 +400,7 @@ if run:
         st.error("Pega un tweet para verificar.")
     else:
         with st.spinner("Buscando datos y analizando..."):
-            if "Claude" in modelo:
-                result = verify_claude(tweet_input.strip(), st.session_state["api_key"], angulo_input.strip())
-            else:
-                result = verify_gemini(tweet_input.strip(), st.session_state["api_key"], angulo_input.strip())
+            result = verify_claude(tweet_input.strip(), st.session_state["api_key"], angulo_input.strip())
 
         verif = result.get("verificacion", {})
         veredicto = verif.get("veredicto", "ERROR")
