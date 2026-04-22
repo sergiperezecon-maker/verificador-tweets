@@ -142,7 +142,7 @@ def _error_json(msg: str) -> dict:
     }
 
 
-def verify_tweet(tweet: str, api_key: str) -> dict:
+def verify_tweet(tweet: str, api_key: str, angulo: str = "") -> dict:
     client = anthropic.Anthropic(api_key=api_key)
 
     tools = [{
@@ -233,7 +233,9 @@ FORMATO DE SALIDA — devuelve ÚNICAMENTE este JSON, sin texto extra:
   ]
 }"""
 
-    messages = [{"role": "user", "content": f'Verifica este tweet y genera 3 respuestas:\n\n"{tweet}"'}]
+    angulo_line = f"\n\nÁNGULO DEL USUARIO: {angulo.strip()}\nTen muy en cuenta este ángulo al generar las 3 respuestas. Las respuestas deben argumentar desde esta posición, usando los datos verificados como munición." if angulo.strip() else ""
+
+    messages = [{"role": "user", "content": f'Verifica este tweet y genera 3 respuestas:{angulo_line}\n\nTweet a verificar:\n\n"{tweet}"'}]
     max_iterations = 8
 
     for _ in range(max_iterations):
@@ -310,6 +312,17 @@ tweet_input = st.text_area(
     placeholder="Pega aquí el tweet...",
     label_visibility="collapsed"
 )
+
+st.markdown("### ¿Qué quieres argumentar?")
+st.markdown("<p style='color:#444; font-size:0.82rem; margin-top:-0.8rem; margin-bottom:0.6rem;'>Opcional — dile a la IA tu posición. Ej: \"Quiero demostrar que subir el SMI no reduce la inflación\" o \"Quiero ir contra este argumento con datos\"</p>", unsafe_allow_html=True)
+angulo_input = st.text_area(
+    "",
+    height=80,
+    placeholder="Quiero demostrar que... / Quiero ir contra... / Mi argumento es que...",
+    label_visibility="collapsed",
+    key="angulo"
+)
+
 run = st.button("⚡  Verificar y generar respuestas", use_container_width=True)
 
 st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
@@ -322,7 +335,7 @@ if run:
         st.error("Pega un tweet para verificar.")
     else:
         with st.spinner("Buscando datos y analizando..."):
-            result = verify_tweet(tweet_input.strip(), st.session_state["api_key"])
+            result = verify_tweet(tweet_input.strip(), st.session_state["api_key"], angulo_input.strip())
 
         verif = result.get("verificacion", {})
         veredicto = verif.get("veredicto", "ERROR")
