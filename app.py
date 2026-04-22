@@ -231,55 +231,47 @@ def verify_gemini(tweet: str, api_key: str, angulo: str) -> dict:
     if not model:
         return _error_json("No se pudo conectar con Gemini. Revisa tu API Key.")
 
-    angulo_line = f"\n\nÁngulo: {angulo.strip()}" if angulo.strip() else ""
-    tools = [{"function_declarations": [{
-        "name": "buscar_informacion",
-        "description": "Busca en internet para verificar datos del tweet.",
-        "parameters": {
-            "type": "object",
-            "properties": {"consulta": {"type": "string"}},
-            "required": ["consulta"]
-        }
-    }]}]
+    # Busca contexto web primero, luego lo pasa todo a Gemini de una vez
+    context = search_web(tweet[:200])
+    context2 = search_web(tweet[:100] + " datos España 2026")
+
+    angulo_line = f"\n\nÁNGULO DEL USUARIO: {angulo.strip()}\nUsa los datos verificados como munición para este ángulo." if angulo.strip() else ""
+
+    prompt = f"""{build_system_prompt(angulo)}
+
+DATOS DE INTERNET PARA VERIFICAR (úsalos para basar tu respuesta en hechos reales):
+{context}
+
+---
+
+{context2}
+
+{angulo_line}
+
+Tweet a verificar: "{tweet}"
+
+Devuelve ÚNICAMENTE el JSON pedido, sin texto extra."""
 
     url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={api_key}"
-    contents = [{"role": "user", "parts": [{"text": f'Verifica este tweet y genera 3 respuestas:{angulo_line}\n\nTweet:\n\n"{tweet}"'}]}]
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
 
-    for _ in range(8):
-        payload = {
-            "system_instruction": {"parts": [{"text": build_system_prompt(angulo)}]},
-            "contents": contents,
-            "tools": tools
-        }
-        for attempt in range(3):
-            resp = requests.post(url, json=payload, timeout=30)
-            if resp.ok:
-                break
-            if resp.status_code == 503 and attempt < 2:
-                time.sleep(3)
-        if not resp.ok:
-            return _error_json("Error de conexión con Gemini.")
-
-        parts = resp.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])
-        function_calls = [p for p in parts if "functionCall" in p]
-        text_parts = [p for p in parts if "text" in p]
-
-        if function_calls:
-            contents.append({"role": "model", "parts": parts})
-            tool_responses = []
-            for fc in function_calls:
-                result_text = search_web(fc["functionCall"].get("args", {}).get("consulta", ""))
-                tool_responses.append({"functionResponse": {"name": fc["functionCall"]["name"], "response": {"content": result_text}}})
-            contents.append({"role": "user", "parts": tool_responses})
-        elif text_parts:
-            full_text = "".join(p["text"] for p in text_parts)
-            if full_text.strip():
-                return extract_json(full_text)
+    for attempt in range(3):
+        resp = requests.post(url, json=payload, timeout=30)
+        if resp.ok:
             break
-        else:
-            break
+        if resp.status_code == 503 and attempt < 2:
+            time.sleep(3)
+            continue
 
-    return _error_json("No se pudo obtener respuesta.")
+    if not resp.ok:
+        err = resp.json().get("error", {}).get("message", resp.status_code) if resp.headers.get("content-type","").startswith("application/json") else resp.status_code
+        return _error_json(f"Error Gemini: {err}")
+
+    try:
+        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return extract_json(text)
+    except Exception:
+        return _error_json("No se pudo leer la respuesta de Gemini.")
 
 
 # ─── UI ────────────────────────────────────────────────────────────────────────
