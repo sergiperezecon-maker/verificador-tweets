@@ -215,10 +215,13 @@ def get_gemini_model(api_key: str) -> str:
     try:
         r = requests.get(f"https://generativelanguage.googleapis.com/v1/models?key={api_key}", timeout=10)
         if r.ok:
-            for m in r.json().get("models", []):
-                if "generateContent" in m.get("supportedGenerationMethods", []) and "flash" in m.get("name", ""):
-                    return m["name"].replace("models/", "")
-            for m in r.json().get("models", []):
+            models = r.json().get("models", [])
+            # Prefiere pro > flash > cualquier otro
+            for keyword in ["1.5-pro", "pro", "flash"]:
+                for m in models:
+                    if "generateContent" in m.get("supportedGenerationMethods", []) and keyword in m.get("name", ""):
+                        return m["name"].replace("models/", "")
+            for m in models:
                 if "generateContent" in m.get("supportedGenerationMethods", []):
                     return m["name"].replace("models/", "")
     except Exception:
@@ -231,21 +234,32 @@ def verify_gemini(tweet: str, api_key: str, angulo: str) -> dict:
     if not model:
         return _error_json("No se pudo conectar con Gemini. Revisa tu API Key.")
 
-    # Busca contexto web primero, luego lo pasa todo a Gemini de una vez
+    # 3 búsquedas específicas para máxima precisión
     context = search_web(tweet[:200])
-    context2 = search_web(tweet[:100] + " datos España 2026")
+    context2 = search_web(tweet[:100] + " datos España 2026 estadísticas")
+    context3 = search_web(tweet[:100] + " fuentes INE Banco de España eurostat")
 
     angulo_line = f"\n\nÁNGULO DEL USUARIO: {angulo.strip()}\nUsa los datos verificados como munición para este ángulo." if angulo.strip() else ""
 
     prompt = f"""{build_system_prompt(angulo)}
 
-DATOS DE INTERNET PARA VERIFICAR (úsalos para basar tu respuesta en hechos reales):
+DATOS DE INTERNET (tres búsquedas independientes — úsalos para verificar con precisión):
+
+BÚSQUEDA 1:
 {context}
 
----
-
+BÚSQUEDA 2:
 {context2}
 
+BÚSQUEDA 3 (fuentes oficiales):
+{context3}
+
+NORMAS DE PRECISIÓN — MUY IMPORTANTE:
+- Solo afirma datos que aparezcan en los resultados de búsqueda arriba.
+- Si un dato no está confirmado, indícalo con "dato no verificado".
+- Nunca inventes cifras, fechas ni porcentajes.
+- Si los resultados son contradictorios, usa el dato más conservador.
+- Las fuentes del JSON deben ser URLs reales de los resultados anteriores.
 {angulo_line}
 
 Tweet a verificar: "{tweet}"
