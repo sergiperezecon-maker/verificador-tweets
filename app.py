@@ -210,20 +210,52 @@ def verify_claude(tweet: str, api_key: str, angulo: str) -> dict:
     return _error_json("No se pudo obtener respuesta.")
 
 
-@st.cache_data(ttl=3600)
-def get_gemini_model(api_key: str) -> str:
-    FREE_TIER_MODELS = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro"]
+def verify_groq(tweet: str, api_key: str, angulo: str) -> dict:
+    context1 = search_web(tweet[:200])
+    context2 = search_web(tweet[:100] + " datos España 2026 estadísticas")
+    context3 = search_web(tweet[:100] + " fuentes INE Banco de España eurostat")
+
+    angulo_line = f"\n\nÁNGULO DEL USUARIO: {angulo.strip()}\nUsa los datos como munición para este ángulo." if angulo.strip() else ""
+
+    prompt = f"""DATOS DE INTERNET (tres búsquedas):
+
+BÚSQUEDA 1:
+{context1}
+
+BÚSQUEDA 2:
+{context2}
+
+BÚSQUEDA 3 (fuentes oficiales):
+{context3}
+
+NORMAS: Solo usa datos que aparezcan arriba. No inventes cifras. Si no está confirmado, di "dato no verificado".
+{angulo_line}
+
+Tweet a verificar: "{tweet}"
+
+Devuelve ÚNICAMENTE el JSON pedido en el system prompt, sin texto extra."""
+
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": "llama-3.1-70b-versatile",
+        "messages": [
+            {"role": "system", "content": build_system_prompt(angulo)},
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 2048,
+        "temperature": 0.2
+    }
+
     try:
-        r = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}", timeout=10)
-        if r.ok:
-            available = {m["name"].replace("models/", "") for m in r.json().get("models", [])
-                        if "generateContent" in m.get("supportedGenerationMethods", [])}
-            for preferred in FREE_TIER_MODELS:
-                if preferred in available:
-                    return preferred
-    except Exception:
-        pass
-    return "gemini-1.5-flash"
+        resp = requests.post(url, headers=headers, json=payload, timeout=30)
+        if resp.ok:
+            text = resp.json()["choices"][0]["message"]["content"]
+            return extract_json(text)
+        err = resp.json().get("error", {}).get("message", resp.status_code)
+        return _error_json(f"Error Groq: {err}")
+    except Exception as e:
+        return _error_json(f"Error de conexión con Groq: {e}")
 
 
 def verify_gemini(tweet: str, api_key: str, angulo: str) -> dict:
@@ -293,17 +325,17 @@ st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
 # Model selector + API key
 st.markdown("### Motor de IA")
-col_sel, col_badge = st.columns([3, 1])
-with col_sel:
-    modelo = st.radio("", ["Gemini (gratis)", "Claude (de pago, más preciso)"], horizontal=True, label_visibility="collapsed")
+modelo = st.radio("", ["Groq — Llama 3.1 (gratis)", "Claude (de pago, más preciso)"], horizontal=True, label_visibility="collapsed")
+
+placeholders = {
+    "Groq — Llama 3.1 (gratis)": ("console.groq.com → Create API Key (gratis)", "gsk_..."),
+    "Claude (de pago, más preciso)": ("console.anthropic.com → API Keys", "sk-ant-api03-..."),
+}
+hint, placeholder = placeholders[modelo]
 
 with st.expander("🔑 API Key", expanded=not st.session_state.get("api_key", "")):
-    if modelo == "Claude (de pago, más preciso)":
-        st.markdown("<p style='color:#666; font-size:0.82rem;'>console.anthropic.com → API Keys</p>", unsafe_allow_html=True)
-        key_input = st.text_input("", type="password", value=st.session_state.get("api_key", ""), placeholder="sk-ant-api03-...", label_visibility="collapsed")
-    else:
-        st.markdown("<p style='color:#666; font-size:0.82rem;'>aistudio.google.com → Get API Key</p>", unsafe_allow_html=True)
-        key_input = st.text_input("", type="password", value=st.session_state.get("api_key", ""), placeholder="AIzaSy...", label_visibility="collapsed")
+    st.markdown(f"<p style='color:#666; font-size:0.82rem;'>{hint}</p>", unsafe_allow_html=True)
+    key_input = st.text_input("", type="password", value=st.session_state.get("api_key", ""), placeholder=placeholder, label_visibility="collapsed")
     if key_input:
         st.session_state["api_key"] = key_input
         st.success("API Key guardada ✓")
@@ -332,7 +364,7 @@ if run:
             if "Claude" in modelo:
                 result = verify_claude(tweet_input.strip(), st.session_state["api_key"], angulo_input.strip())
             else:
-                result = verify_gemini(tweet_input.strip(), st.session_state["api_key"], angulo_input.strip())
+                result = verify_groq(tweet_input.strip(), st.session_state["api_key"], angulo_input.strip())
 
         verif = result.get("verificacion", {})
         veredicto = verif.get("veredicto", "ERROR")
