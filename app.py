@@ -238,7 +238,7 @@ Devuelve ÚNICAMENTE el JSON pedido en el system prompt, sin texto extra."""
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
-        "model": "llama-3.1-70b-versatile",
+        "model": "llama-3.3-70b-versatile",
         "messages": [
             {"role": "system", "content": build_system_prompt(angulo)},
             {"role": "user", "content": prompt}
