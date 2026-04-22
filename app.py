@@ -210,6 +210,28 @@ def verify_claude(tweet: str, api_key: str, angulo: str) -> dict:
     return _error_json("No se pudo obtener respuesta.")
 
 
+@st.cache_data(ttl=3600)
+def get_groq_model(api_key: str) -> str:
+    preferred = ["llama-3.3-70b", "llama-3.1-70b", "llama3-70b", "mixtral-8x7b", "gemma2-9b", "llama"]
+    try:
+        r = requests.get(
+            "https://api.groq.com/openai/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10
+        )
+        if r.ok:
+            models = [m["id"] for m in r.json().get("data", [])]
+            for keyword in preferred:
+                for m in models:
+                    if keyword in m:
+                        return m
+            if models:
+                return models[0]
+    except Exception:
+        pass
+    return "llama-3.3-70b-versatile"
+
+
 def verify_groq(tweet: str, api_key: str, angulo: str) -> dict:
     context1 = search_web(tweet[:200])
     context2 = search_web(tweet[:100] + " datos España 2026 estadísticas")
@@ -269,7 +291,7 @@ Devuelve ÚNICAMENTE el JSON, sin texto previo ni explicaciones."""
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
-        "model": "deepseek-r1-distill-llama-70b",
+        "model": get_groq_model(api_key),
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": prompt}
@@ -283,7 +305,7 @@ Devuelve ÚNICAMENTE el JSON, sin texto previo ni explicaciones."""
         if resp.ok:
             text = resp.json()["choices"][0]["message"]["content"]
             # deepseek-r1 incluye <think>...</think> antes del JSON, lo eliminamos
-            text = re.sub(r"<think>[\s\S]*?</think>", "", text).strip()
+            text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.DOTALL).strip()
             return extract_json(text)
         err = resp.json().get("error", {}).get("message", resp.status_code)
         return _error_json(f"Error Groq: {err}")
