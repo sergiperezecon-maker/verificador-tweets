@@ -74,20 +74,17 @@ st.markdown("""
 def search_web(query: str) -> str:
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=5, region="es-es"))
+            results = list(ddgs.text(query, max_results=3, region="es-es"))
         if not results:
             with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=5))
+                results = list(ddgs.text(query, max_results=3))
         if not results:
             return "No se encontraron resultados."
         parts = []
         for r in results:
-            parts.append(
-                f"Título: {r.get('title', '')}\n"
-                f"Resumen: {r.get('body', '')}\n"
-                f"URL: {r.get('href', '')}"
-            )
-        return "\n\n---\n\n".join(parts)
+            body = r.get('body', '')[:300]
+            parts.append(f"{r.get('title','')} | {body} | {r.get('href','')}")
+        return "\n".join(parts)
     except Exception as e:
         return f"Error en búsqueda: {e}"
 
@@ -128,42 +125,15 @@ def _error_json(msg: str) -> dict:
 
 
 def build_system_prompt(angulo: str) -> str:
-    today = date.today().strftime("%d de %B de %Y")
-    angulo_line = f"\n\nÁNGULO DEL USUARIO: {angulo.strip()}\nTen muy en cuenta este ángulo al generar las 3 respuestas. Las respuestas deben argumentar desde esta posición, usando los datos verificados como munición." if angulo.strip() else ""
+    today = date.today().strftime("%d/%m/%Y")
+    angulo_line = f"\nÁNGULO: {angulo.strip()}" if angulo.strip() else ""
+    return f"""Verificador de hechos económicos y estratega de contenido para @contraelrelato (Aesthetic Financiero). HOY: {today}.
 
-    return f"""Eres un verificador de hechos experto en economía, finanzas y política española y global.
-También eres estratega de contenido para el nicho "Aesthetic Financiero / Despertar Económico" en Instagram y TikTok.
+VOZ: fría, directa, datos como arma. El antagonista es el sistema, nunca una persona. Máx 4 líneas. **Negrita** al dato más fuerte.
+CONTEXTO ESPAÑA (solo si es relevante): inflación 3,4%, vivienda +14,7%, SMI 1.221€, deuda global 117% PIB, aranceles Trump 20% UE.{angulo_line}
 
-FECHA ACTUAL: {today}. Estamos en 2026. Usa SIEMPRE esta fecha como referencia.
-
-CONTEXTO ACTUAL (abril 2026) — usa SOLO si es relevante para el tweet concreto:
-- Inflación en España: 3,4% en marzo 2026.
-- Vivienda en España: +14,7% interanual. Solo el 36,7% de menores de 35 tiene piso en propiedad.
-- Renta mediana de jóvenes (<35 años) cayó un 17%.
-- SMI España 2026: 1.221€/mes.
-- Aranceles Trump: 34% a China, 20% a la UE.
-- Deuda pública mundial: 117% del PIB global (FMI).
-- Guerra comercial EE.UU.-China activa.{angulo_line}
-
-IMPORTANTE: No uses datos del contexto anterior si no están directamente relacionados con el tweet. Las respuestas deben usar SOLO datos relevantes al tema del tweet. No metas vivienda ni salarios en respuestas sobre energía, geopolítica u otros temas distintos.
-
-VOZ (@contraelrelato): directa, con autoridad, el antagonista es el sistema nunca una persona.
-Máximo 4 líneas por respuesta. Negritas para el dato más fuerte.
-
-FORMATO DE SALIDA — devuelve ÚNICAMENTE este JSON, sin texto extra:
-{{
-  "verificacion": {{
-    "veredicto": "VERDADERO | FALSO | PARCIALMENTE VERDADERO",
-    "explicacion": "Explicación clara y concisa.",
-    "dato_correcto": "El dato exacto si lo hay.",
-    "fuentes": ["url1", "url2"]
-  }},
-  "respuestas": [
-    {{"tipo": "Amplificación", "descripcion": "Confirma y añade el dato más impactante.", "texto": "..."}},
-    {{"tipo": "Corrección con autoridad", "descripcion": "Corrige o matiza como experto.", "texto": "..."}},
-    {{"tipo": "Máximo alcance", "descripcion": "Diseñada para shares y guardados.", "texto": "..."}}
-  ]
-}}"""
+Devuelve ÚNICAMENTE este JSON, sin texto extra:
+{{"verificacion":{{"veredicto":"VERDADERO|FALSO|PARCIALMENTE VERDADERO","explicacion":"...","dato_correcto":"...","fuentes":["url1"]}},"respuestas":[{{"tipo":"Amplificación","descripcion":"Confirma y añade el dato más impactante.","texto":"..."}},{{"tipo":"Corrección con autoridad","descripcion":"Corrige o matiza como experto.","texto":"..."}},{{"tipo":"Máximo alcance","descripcion":"Diseñada para shares y guardados.","texto":"..."}}]}}"""
 
 
 def verify_claude(tweet: str, api_key: str, angulo: str, contexto: str = "") -> dict:
@@ -185,7 +155,7 @@ def verify_claude(tweet: str, api_key: str, angulo: str, contexto: str = "") -> 
     for _ in range(8):
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=8096,
+            max_tokens=2000,
             system=build_system_prompt(angulo),
             tools=tools,
             messages=messages
