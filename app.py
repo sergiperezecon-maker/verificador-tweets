@@ -140,7 +140,7 @@ IDENTIDAD DE LA CUENTA:
 - **Negrita** siempre al dato más impactante. Sin emojis salvo que el tweet original los use.
 
 DATOS ESPAÑA 2026 (usa SOLO si son relevantes al tweet):
-Inflación 3,4% · Vivienda +14,7% interanual · SMI 1.221€ · Deuda global 117% PIB · Aranceles Trump 20% UE · Solo 36,7% menores de 35 tiene piso en propiedad.
+Inflación 3,4% · SMI 1.221€ · Deuda global 117% PIB · Aranceles Trump 20% UE.
 
 HOY: {today}{angulo_line}
 
