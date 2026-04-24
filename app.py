@@ -126,11 +126,23 @@ def _error_json(msg: str) -> dict:
 
 def build_system_prompt(angulo: str) -> str:
     today = date.today().strftime("%d/%m/%Y")
-    angulo_line = f"\nÁNGULO: {angulo.strip()}" if angulo.strip() else ""
-    return f"""Verificador de hechos económicos y estratega de contenido para @contraelrelato (Aesthetic Financiero). HOY: {today}.
+    angulo_line = f"\nÁNGULO A DEFENDER: {angulo.strip()}" if angulo.strip() else ""
+    return f"""Eres el asistente estratégico de @contraelrelato (Sergi Pérez, estudiante de Economía, España).
 
-VOZ: fría, directa, datos como arma. El antagonista es el sistema, nunca una persona. Máx 4 líneas. **Negrita** al dato más fuerte.
-CONTEXTO ESPAÑA (solo si es relevante): inflación 3,4%, vivienda +14,7%, SMI 1.221€, deuda global 117% PIB, aranceles Trump 20% UE.{angulo_line}
+IDENTIDAD DE LA CUENTA:
+- Nicho: Aesthetic Financiero / Despertar Económico (X, Threads, Instagram)
+- Audiencia: jóvenes 18-30 que sienten que el sistema económico les falla
+- Propósito: traducir datos económicos complejos en argumentos claros, fríos y poderosos
+- Tono: estoico, filosófico, nunca defensivo. Como Tommy Shelby con datos del FMI.
+- El antagonista SIEMPRE es el sistema o la política — nunca un individuo o partido concreto
+- Nunca se da la razón al adversario aunque sea parcialmente; se reencuadra el debate con datos
+- Máx 4 líneas por respuesta. Última línea: frase que haga pensar, no solución fácil
+- **Negrita** siempre al dato más impactante. Sin emojis salvo que el tweet original los use.
+
+DATOS ESPAÑA 2026 (usa SOLO si son relevantes al tweet):
+Inflación 3,4% · Vivienda +14,7% interanual · SMI 1.221€ · Deuda global 117% PIB · Aranceles Trump 20% UE · Solo 36,7% menores de 35 tiene piso en propiedad.
+
+HOY: {today}{angulo_line}
 
 Devuelve ÚNICAMENTE este JSON, sin texto extra:
 {{"verificacion":{{"veredicto":"VERDADERO|FALSO|PARCIALMENTE VERDADERO","explicacion":"...","dato_correcto":"...","fuentes":["url1"]}},"respuestas":[{{"tipo":"Amplificación","descripcion":"Confirma y añade el dato más impactante.","texto":"..."}},{{"tipo":"Corrección con autoridad","descripcion":"Corrige o matiza como experto.","texto":"..."}},{{"tipo":"Máximo alcance","descripcion":"Diseñada para shares y guardados.","texto":"..."}}]}}"""
@@ -358,9 +370,9 @@ st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 st.markdown("### Tweet a verificar")
 tweet_input = st.text_area("", height=120, placeholder="Pega aquí el tweet que quieres verificar...", label_visibility="collapsed")
 
-st.markdown("### Contexto")
-st.markdown("<p style='color:#444; font-size:0.82rem; margin-top:-0.8rem; margin-bottom:0.6rem;'>Opcional — pega la conversación completa, quién eres, a quién respondes. Cuanto más contexto, mejor respuesta.</p>", unsafe_allow_html=True)
-contexto_input = st.text_area("", height=140, placeholder="Ej: Soy @contraelrelato, cuenta de Aesthetic Financiero. Esta es la conversación completa:\n\n[pega aquí el hilo de respuestas]", label_visibility="collapsed", key="contexto")
+st.markdown("### Hilo / conversación (opcional)")
+st.markdown("<p style='color:#444; font-size:0.82rem; margin-top:-0.8rem; margin-bottom:0.6rem;'>Pega aquí el tweet al que respondes, el hilo completo o quién te ha contestado. Tu perfil ya está guardado.</p>", unsafe_allow_html=True)
+contexto_input = st.text_area("", height=100, placeholder="Ej: @usuario me ha contestado esto: '...' — quiero responderle en X", label_visibility="collapsed", key="contexto")
 
 st.markdown("### ¿Qué quieres argumentar?")
 st.markdown("<p style='color:#444; font-size:0.82rem; margin-top:-0.8rem; margin-bottom:0.6rem;'>Opcional — el ángulo concreto que quieres defender o atacar.</p>", unsafe_allow_html=True)
